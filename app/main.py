@@ -20,12 +20,17 @@ async def list_models():
         "object":
         "list",
         "data": [{
-            "id": "chatglm-4",
+            "id": "GLM-4.5-Flash",
             "object": "model",
             "created": int(datetime(2024, 8, 1).timestamp()),
             "owned_by": "zhipu.ai"
         }, {
-            "id": "chatglm-3",
+            "id": "GLM-4-Flash",
+            "object": "model",
+            "created": int(datetime(2023, 12, 1).timestamp()),
+            "owned_by": "zhipu.ai"
+        },{
+            "id": "GLM-4-Plus",
             "object": "model",
             "created": int(datetime(2023, 12, 1).timestamp()),
             "owned_by": "zhipu.ai"
@@ -89,17 +94,46 @@ async def chat_completions(
         raise HTTPException(status_code=500, detail=str(e))
 
     if not request.stream:
-        return response.dict()
+        result = response.dict()
+        del response
+        import gc
+        gc.collect()
+        return result
 
-    def format_stream():
+    def format_stream(resp):
         try:
-            for chunk in response:
+            for chunk in resp:
                 yield f"data: {json.dumps(chunk.dict())}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as e:
             yield f"data: {{\"error\": \"{str(e)}\"}}\n\n"
+        finally:
+            try:
+                del resp
+            except:
+                pass
+            import gc
+            gc.collect()
 
-    return StreamingResponse(format_stream(), media_type="text/event-stream")
+    return StreamingResponse(format_stream(response),
+                             media_type="text/event-stream")
+import os, time, psutil
+
+start_time = time.time()
+
+@app.get("/monitor")
+def monitor():
+    process = psutil.Process(os.getpid())
+    mem_mb = process.memory_info().rss / 1024 / 1024
+    return {
+        "status": "ok",
+        "memory_mb": round(mem_mb, 2),
+        "uptime_sec": round(time.time() - start_time)
+    }
+@app.get("/healthz")
+def healthz():
+    return "ok"
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
