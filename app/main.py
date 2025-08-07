@@ -13,6 +13,8 @@ client = ZhipuAiClient(api_key="2df10bf298af4748bf01864a3b8a0ba1.4UOCbHoDgewtC8Q
 @app.get("/")
 async def root():
     return {"message": "OpenAI compatible API service is running."}
+
+
 from datetime import datetime
 @app.get("/v1/models")
 async def list_models():
@@ -20,12 +22,17 @@ async def list_models():
         "object":
         "list",
         "data": [{
-            "id": "chatglm-4",
+            "id": "GLM-4.5-Flash",
             "object": "model",
             "created": int(datetime(2024, 8, 1).timestamp()),
             "owned_by": "zhipu.ai"
         }, {
-            "id": "chatglm-3",
+            "id": "GLM-4-Flash",
+            "object": "model",
+            "created": int(datetime(2023, 12, 1).timestamp()),
+            "owned_by": "zhipu.ai"
+        },{
+            "id": "GLM-4-Plus",
             "object": "model",
             "created": int(datetime(2023, 12, 1).timestamp()),
             "owned_by": "zhipu.ai"
@@ -34,15 +41,33 @@ async def list_models():
 async def verify_token(authorization: Optional[str] = Header(None)):
     if authorization != "lanzhengpeng":
         raise HTTPException(status_code=401, detail="Unauthorized")
+    
+
+from typing import Union, List, Dict
+class ImageURL(BaseModel):
+    url: str
+
+class ContentText(BaseModel):
+    type: Literal["text"]
+    text: str
+
+class ContentImage(BaseModel):
+    type: Literal["image_url"]
+    image_url: ImageURL
+
 class Message(BaseModel):
     role: Literal["system", "user", "assistant"]
-    content: str
+    content: Union[
+        str,
+        List[Union[ContentText, ContentImage]]
+    ]
+
 
 class ChatCompletionRequest(BaseModel):
     model: str
     messages: List[Message]
     temperature: float = Field(1.0, ge=0.0, le=2.0)  # 默认1，范围0~2
-    max_tokens: int = Field(512, ge=1, le=2048)       # 默认512，限制范围
+    max_tokens: int = Field(2048, ge=1, le=131072)     # 修改模型长度
     top_p: float = Field(1.0, ge=0.0, le=1.0)        # nucleus采样
     n: int = Field(1, ge=1, le=5)                     # 返回几条结果
     stream: bool = False                              # 是否流式
@@ -89,17 +114,48 @@ async def chat_completions(
         raise HTTPException(status_code=500, detail=str(e))
 
     if not request.stream:
-        return response.dict()
+        result = response.dict()
+        del response
+        import gc
+        gc.collect()
+        return result
 
-    def format_stream():
+    def format_stream(resp):
         try:
-            for chunk in response:
+            for chunk in resp:
                 yield f"data: {json.dumps(chunk.dict())}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as e:
             yield f"data: {{\"error\": \"{str(e)}\"}}\n\n"
+        finally:
+            try:
+                del resp
+            except:
+                pass
+            import gc
+            gc.collect()
 
-    return StreamingResponse(format_stream(), media_type="text/event-stream")
+    return StreamingResponse(format_stream(response),
+                             media_type="text/event-stream")
+import os, time, psutil
+
+start_time = time.time()
+
+@app.get("/monitor")
+def monitor():
+    process = psutil.Process(os.getpid())
+    mem_mb = process.memory_info().rss / 1024 / 1024
+    return {
+        "status": "ok",
+        "memory_mb": round(mem_mb, 2),
+        "uptime_sec": round(time.time() - start_time)
+    }
+@app.get("/healthz")
+def healthz():
+    return "ok"
+
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
