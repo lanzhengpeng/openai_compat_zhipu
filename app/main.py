@@ -13,6 +13,8 @@ client = ZhipuAiClient(api_key="2df10bf298af4748bf01864a3b8a0ba1.4UOCbHoDgewtC8Q
 @app.get("/")
 async def root():
     return {"message": "OpenAI compatible API service is running."}
+
+
 from datetime import datetime
 @app.get("/v1/models")
 async def list_models():
@@ -39,15 +41,33 @@ async def list_models():
 async def verify_token(authorization: Optional[str] = Header(None)):
     if authorization != "lanzhengpeng":
         raise HTTPException(status_code=401, detail="Unauthorized")
+    
+
+from typing import Union, List, Dict
+class ImageURL(BaseModel):
+    url: str
+
+class ContentText(BaseModel):
+    type: Literal["text"]
+    text: str
+
+class ContentImage(BaseModel):
+    type: Literal["image_url"]
+    image_url: ImageURL
+
 class Message(BaseModel):
     role: Literal["system", "user", "assistant"]
-    content: str
+    content: Union[
+        str,
+        List[Union[ContentText, ContentImage]]
+    ]
+
 
 class ChatCompletionRequest(BaseModel):
     model: str
     messages: List[Message]
     temperature: float = Field(1.0, ge=0.0, le=2.0)  # 默认1，范围0~2
-    max_tokens: int = Field(512, ge=1, le=2048)       # 默认512，限制范围
+    max_tokens: int = Field(2048, ge=1, le=131072)     # 修改模型长度
     top_p: float = Field(1.0, ge=0.0, le=1.0)        # nucleus采样
     n: int = Field(1, ge=1, le=5)                     # 返回几条结果
     stream: bool = False                              # 是否流式
@@ -133,6 +153,8 @@ def monitor():
 @app.get("/healthz")
 def healthz():
     return "ok"
+
+
 
 if __name__ == "__main__":
     import uvicorn
